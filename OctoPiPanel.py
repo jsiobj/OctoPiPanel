@@ -12,6 +12,7 @@ import requests
 import platform
 import datetime
 import subprocess
+import RPi.GPIO as GPIO
 from pygame.locals import *
 from collections import deque
 from ConfigParser import RawConfigParser
@@ -58,12 +59,14 @@ class OctoPiPanel():
     graph_area_width  = win_width - graph_area_left - 5
     graph_area_height = win_height - graph_area_top - 5
 
+
     def __init__(self, caption="OctoPiPanel"):
         """
         .
         """
         self.done = False
         self.color_bg = pygame.Color(41, 61, 70)
+
 
         # Button settings
         self.leftPadding = 5
@@ -127,6 +130,11 @@ class OctoPiPanel():
         # backlight on off status and control
         self.bglight_ticks = pygame.time.get_ticks()
         self.bglight_on = True
+        
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(18,GPIO.OUT)    # PWM pin for backlight control
+        self.pwm=GPIO.PWM(18,0.5)
+        self.pwm.start(100)        # start at full brightness
 
         # Home X/Y/Z buttons
         self.btnHomeXY        = pygbutton.PygButton((  self.leftPadding,   5, self.buttonWidth, self.buttonHeight), "Home X/Y")
@@ -146,21 +154,7 @@ class OctoPiPanel():
         self.btnReboot        = pygbutton.PygButton((  self.leftPadding + self.buttonWidth * 2 + self.buttonSpace * 2,   5, self.buttonWidth, self.buttonHeight), "Reboot");
         self.btnShutdown      = pygbutton.PygButton((  self.leftPadding + self.buttonWidth * 2 + self.buttonSpace * 2,  35, self.buttonWidth, self.buttonHeight), "Shutdown");
 
-        # I couldnt seem to get at pin 252 for the backlight using the usual method,
-        # but this seems to work
-        if platform.system() == 'Linux':
-            os.system("echo 252 > /sys/class/gpio/export")
-            os.system("echo 'out' > /sys/class/gpio/gpio252/direction")
-            os.system("echo '1' > /sys/class/gpio/gpio252/value")
-            os.system("echo 508 > /sys/class/gpio/export")
-            os.system("echo 'out' > /sys/class/gpio/gpio508/direction")
-            os.system("echo '1' > /sys/class/gpio/gpio508/value")
-            os.system("echo pwm > /sys/class/rpi-pwm/pwm0/mode")
-            os.system("echo '1000' > /sys/class/rpi-pwm/pwm0/frequency")
-            os.system("echo '90' > /sys/class/rpi-pwm/pwm0/duty")
-            os.system("echo '1' > /sys/class/backlight/soc\:backlight/brightness")
-        # Init of class done
-        print "OctoPiPanel initiated"
+        print "OctoPiPanel initialized"
 
     def Start(self):
         # OctoPiPanel started
@@ -178,13 +172,10 @@ class OctoPiPanel():
                 self.getstate_ticks = pygame.time.get_ticks()
 
             # Is it time to turn of the backlight?
-            if self.backlightofftime > 0 and platform.system() == 'Linux':
+            if self.backlightofftime > 0 and platform.system() == 'Linux' and self.bglight_on:
                 if pygame.time.get_ticks() - self.bglight_ticks > self.backlightofftime:
-                    # disable the backlight
-                    os.system("echo '0' > /sys/class/gpio/gpio252/value")
-                    os.system("echo '0' > /sys/class/gpio/gpio508/value")
-                    os.system("echo '1' > /sys/class/rpi-pwm/pwm0/duty")
-                    os.system("echo '0' > /sys/class/backlight/soc\:backlight/brightness")
+                    print "Screen going to sleep"
+                    self.pwm.ChangeDutyCycle(0)
                     self.bglight_ticks = pygame.time.get_ticks()
                     self.bglight_on = False
 
@@ -197,10 +188,8 @@ class OctoPiPanel():
         """ Clean up """
         # enable the backlight before quiting
         if platform.system() == 'Linux':
-            os.system("echo '1' > /sys/class/gpio/gpio252/value")
-            os.system("echo '1' > /sys/class/gpio/gpio508/value")
-            os.system("echo '90' > /sys/class/rpi-pwm/pwm0/duty")
-            os.system("echo '1' > /sys/class/backlight/soc\:backlight/brightness")
+            self.pwm.ChangeDutyCycle(100)
+            GPIO.cleanup()
 
         # OctoPiPanel is going down.
         print "OctoPiPanel is going down."
@@ -264,11 +253,8 @@ class OctoPiPanel():
                 self.bglight_ticks = pygame.time.get_ticks()
 
                 if self.bglight_on == False and platform.system() == 'Linux':
-                    # enable the backlight
-                    os.system("echo '1' > /sys/class/gpio/gpio252/value")
-                    os.system("echo '1' > /sys/class/gpio/gpio508/value")
-                    os.system("echo '90' > /sys/class/rpi-pwm/pwm0/duty")
-                    os.system("echo '1' > /sys/class/backlight/soc\:backlight/brightness")
+                    self.pwm.ChangeDutyCycle(100)
+
                     self.bglight_on = True
                     print "Background light on."
 
